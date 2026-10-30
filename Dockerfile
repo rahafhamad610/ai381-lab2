@@ -29,6 +29,11 @@ COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder --chown=appuser:appuser /app/src /app/src
 COPY --from=builder --chown=appuser:appuser /app/models /app/models
 
+# Package installation is complete; omit installers from runtime.
+RUN /opt/venv/bin/python -m pip uninstall -y pip \
+    && /usr/local/bin/python -m pip uninstall -y pip \
+    && rm -rf /usr/local/lib/python3.14/ensurepip
+
 USER appuser
 
 EXPOSE 8000
