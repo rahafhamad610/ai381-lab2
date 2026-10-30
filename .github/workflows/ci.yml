@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-test:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Build training stage and run tests
+        run: docker build --progress=plain --target builder -t lab2-tests .
+
+      - name: Lint Python code
+        run: docker run --rm lab2-tests python -m ruff check src tests
+
+  publish:
+    name: Build, scan, and publish
+    needs: lint-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/rahafhamad610/ai381-lab2
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Build runtime image
+        run: docker build --progress=plain -t "$IMAGE:$GITHUB_SHA" .
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: ghcr.io/rahafhamad610/ai381-lab2:${{ github.sha }}
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Sign in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" |
+            docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Push image tagged with commit SHA
+        run: docker push "$IMAGE:$GITHUB_SHA"
+
+      - name: Record published image digest
+        run: |
+          docker image inspect "$IMAGE:$GITHUB_SHA" \
+            --format '{{index .RepoDigests 0}}' >> "$GITHUB_STEP_SUMMARY"
