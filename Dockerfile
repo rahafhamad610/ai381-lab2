@@ -4,6 +4,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH"
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --only-upgrade apt libapt-pkg7.0 zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 FROM base AS builder
