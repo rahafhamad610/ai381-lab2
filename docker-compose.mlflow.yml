@@ -1,0 +1,29 @@
+# Lab 3, Part 1: an MLflow tracking server on your laptop (and in the CI runner).
+#   docker compose -f docker-compose.mlflow.yml up -d --wait
+#   open http://localhost:5000
+# Runs and models are kept in the "mlflow-data" volume, so they survive restarts.
+# Stop it (keeping the data):   docker compose -f docker-compose.mlflow.yml down
+# Stop it and delete the data:  docker compose -f docker-compose.mlflow.yml down -v
+services:
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.17.0
+    command: >
+      mlflow server --workers 1
+      --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --artifacts-destination /mlflow/artifacts
+      --serve-artifacts
+      --allowed-hosts "localhost:*,127.0.0.1:*,mlflow:*,host.docker.internal:*"
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-data:/mlflow
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  mlflow-data:

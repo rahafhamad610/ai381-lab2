@@ -6,3 +6,5 @@ __pycache__/
 .ruff_cache/
 models/
 .env
+.venv-lab3/
+trivy-report.json

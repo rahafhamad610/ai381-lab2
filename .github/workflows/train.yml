@@ -1,0 +1,64 @@
+# Lab 3, Part 5: train the candidates and run the promotion gate on every pull request and every push to main.
+# Red run = the gate blocked a model that is not good enough. That red run is what you show in your video.
+# Pins are the same full commit SHAs as in ci.yml. Update them on purpose, never by accident.
+name: train-and-gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ["src/**", "data/**", "scripts/**", "requirements*.txt", "artifacts/**", ".github/workflows/train.yml"]
+  push:
+    branches: [main]
+    paths: ["src/**", "data/**", "scripts/**", "requirements*.txt", "artifacts/**", ".github/workflows/train.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: train and gate
+    runs-on: ubuntu-latest
+    env:
+      MLFLOW_TRACKING_URI: http://localhost:5000
+      GIT_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v7.0.1
+        with:
+          fetch-depth: 0   # the gate reads the champion from the previous commit, so it needs history
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+
+      - name: Start MLflow (a fresh server for this run)
+        run: docker compose -f docker-compose.mlflow.yml up -d --wait
+
+      - name: Find the champion to beat (from the base branch, or the previous commit)
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          git show "${BASE:-HEAD~1}:artifacts/champion.json" > "$RUNNER_TEMP/champion.json" 2>/dev/null \
+            && echo "Champion found:" && cat "$RUNNER_TEMP/champion.json" \
+            || { echo "No champion on the base yet: the first good model will be promoted."; rm -f "$RUNNER_TEMP/champion.json"; }
+
+      - name: Train the candidates
+        run: |
+          echo "BATCH=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          BATCH="${GITHUB_SHA::7}" python -m src.train.train_mlflow
+
+      - name: Promotion gate (exit code 1 = blocked)
+        run: python scripts/promote.py --champion-file "$RUNNER_TEMP/champion.json"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Gate"
+            echo "Batch \`${GITHUB_SHA::7}\`. See the step above for PROMOTED or BLOCKED."
+            echo "To record a promotion, commit \`artifacts/champion.json\`, \`artifacts/metadata.json\` and \`artifacts/model.joblib\` from your own run of \`scripts/promote.py\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # TODO (your work): after the gate passes on main, build the image (the Dockerfile packages artifacts/model.joblib),
+      # smoke-test it with scripts/smoke_test.sh, and deploy it. See Part 6 of the lab page for both options.
