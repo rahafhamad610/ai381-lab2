@@ -1,3 +1,5 @@
+import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -8,7 +10,9 @@ from fastapi import FastAPI
 from pydantic import BaseModel, ConfigDict, Field
 
 ROOT = Path(__file__).resolve().parents[2]
-MODEL_PATH = ROOT / "models" / "model.joblib"
+CHAMPION_PATH = ROOT / "artifacts" / "model.joblib"
+MODEL_PATH = CHAMPION_PATH if CHAMPION_PATH.exists() else ROOT / "models" / "model.joblib"
+METADATA_PATH = MODEL_PATH.with_name("metadata.json")
 
 
 class Customer(BaseModel):
@@ -28,6 +32,9 @@ class Prediction(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.model = joblib.load(MODEL_PATH)
+    app.state.metadata = (
+        json.loads(METADATA_PATH.read_text()) if METADATA_PATH.exists() else {}
+    )
     yield
 
 
@@ -36,7 +43,14 @@ app = FastAPI(title="AI381 Lab 2 Churn API", lifespan=lifespan)
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    metadata = app.state.metadata
+    return {
+        "status": "ok",
+        "model_version": os.getenv(
+            "GIT_SHA", metadata.get("model_version", "local")
+        )[:7],
+        "mlflow_run_id": metadata.get("mlflow_run_id"),
+    }
 
 
 @app.post("/predict", response_model=Prediction)

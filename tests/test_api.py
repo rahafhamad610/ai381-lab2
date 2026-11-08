@@ -22,7 +22,21 @@ def client():
 def test_health_contract(client):
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "ok"
+    assert isinstance(body["model_version"], str)
+    assert body["model_version"]
+    assert "mlflow_run_id" in body
+
+    import json
+
+    from src.app.main import MODEL_PATH
+
+    metadata_path = MODEL_PATH.with_name("metadata.json")
+    if metadata_path.exists():
+        metadata = json.loads(metadata_path.read_text())
+        assert body["mlflow_run_id"] == metadata["mlflow_run_id"]
+        assert body["mlflow_run_id"]
 
 
 def test_prediction_contract(client):
@@ -88,6 +102,14 @@ def test_deterministic_prediction(client):
     second = client.post("/predict", json=SAMPLE)
     assert first.status_code == second.status_code == 200
     assert first.json() == second.json()
-    assert first.json()["churn_probability"] == pytest.approx(
-        0.866, abs=0.001
+    # Verify the API serves the selected model, rather than a fixed old prediction.
+    import joblib
+    import pandas as pd
+
+    from src.app.main import MODEL_PATH
+
+    packaged_model = joblib.load(MODEL_PATH)
+    expected = round(
+        float(packaged_model.predict_proba(pd.DataFrame([SAMPLE]))[0, 1]), 3
     )
+    assert first.json()["churn_probability"] == pytest.approx(expected, abs=0.001)

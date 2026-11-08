@@ -16,6 +16,7 @@ RUN python -m pip install --no-cache-dir -r requirements.txt
 COPY src/ src/
 COPY data/ data/
 COPY tests/ tests/
+COPY artifacts/ artifacts/
 
 RUN python src/train/train.py
 RUN python -m pytest -v
@@ -27,7 +28,9 @@ RUN groupadd --gid 10001 appuser \
 
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder --chown=appuser:appuser /app/src /app/src
-COPY --from=builder --chown=appuser:appuser /app/models /app/models
+COPY --chown=appuser:appuser artifacts/ /app/artifacts/
+ARG GIT_SHA=local
+ENV GIT_SHA=${GIT_SHA}
 
 # Package installation is complete; omit installers from runtime.
 RUN /opt/venv/bin/python -m pip uninstall -y pip \
